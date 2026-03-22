@@ -250,6 +250,7 @@ MoveAnything_DefaultFrameList = {
 	{ "StaticPopup1", "Static Popup Frame" },
 	{ "UIErrorsFrame", "UI Errors Frame" },
 	{ "CastingBarFrame", "Casting Bar" },
+	{ "ChatFrameEditBox", "Chat EditBox (Move to Top)" },
 	{ "BuffFrame", "Buff Window" },
 	{ "TemporaryEnchantFrame", "Item buff/Debuff Windows" },
 	{ "TooltipMover", "Tooltip" },
@@ -355,12 +356,18 @@ function MoveAnything_RefreshPositions()
 						end
 					end
 				end
+				if( opt.strata ) then
+					frame:HiddenSetFrameStrata( opt.strata );
+				end
 			end
 			if( opt.hidden ) then
 				MoveAnything_HideFrame( frame );
 			end
 		end
 	end
+
+	-- Update ChatFrameEditBox position if it's being moved
+	MoveAnything_UpdateChatEditBox();
 end
 
 function MoveAnything_CurrentSettingsName()
@@ -512,6 +519,10 @@ function MoveAnything_PreventExternalMovement( frame )
 		frame.HiddenSetScale = frame.SetScale;
 		frame.SetScale = function() end;
 	end
+	if( frame.HiddenSetFrameStrata == nil ) then
+		frame.HiddenSetFrameStrata = frame.SetFrameStrata;
+		frame.SetFrameStrata = function() end;
+	end
 	if( frame.attachedChildren ) then
 		for i, val in frame.attachedChildren do
 			MoveAnything_PreventExternalMovement( val );
@@ -535,6 +546,10 @@ function MoveAnything_AllowExternalMovement( frame )
 	if( frame.HiddenSetScale ) then
 		frame.SetScale = frame.HiddenSetScale;
 		frame.HiddenSetScale = nil;
+	end
+	if( frame.HiddenSetFrameStrata ) then
+		frame.SetFrameStrata = frame.HiddenSetFrameStrata;
+		frame.HiddenSetFrameStrata = nil;
 	end
 	if( frame.attachedChildren ) then
 		for i, val in frame.attachedChildren do
@@ -865,6 +880,77 @@ function MA_Nudge(dir, button)
 	MoveAnything_UpdatePosition(mover);
 end
 
+-- Strata utility functions
+function MA_GetStrataLevel(strataName)
+	local strataLevels = {"BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP"};
+	for i = 1, getn(strataLevels) do
+		if strataLevels[i] == strataName then
+			return i;
+		end
+	end
+	return nil;
+end
+
+function MA_GetStrataName(level)
+	local strataLevels = {"BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP"};
+	if level >= 1 and level <= getn(strataLevels) then
+		return strataLevels[level];
+	end
+	return "MEDIUM";
+end
+
+function MA_UpdateStrataDisplay(moverFrame)
+	if not moverFrame or not moverFrame.tagged then
+		return;
+	end
+
+	local strataText = getglobal(moverFrame:GetName().."BackdropStrataText");
+	if strataText then
+		local currentStrata = moverFrame.tagged:GetFrameStrata();
+		strataText:SetText("Strata: "..currentStrata);
+	end
+end
+
+function MA_CycleStrata(direction, moverFrame)
+	if not moverFrame or not moverFrame.tagged then
+		return;
+	end
+
+	local taggedFrame = moverFrame.tagged;
+	local currentStrata = taggedFrame:GetFrameStrata();
+	local currentLevel = MA_GetStrataLevel(currentStrata);
+
+	if not currentLevel then
+		currentLevel = 3; -- Default to MEDIUM
+	end
+
+	-- Cycle through strata levels
+	local newLevel = currentLevel + direction;
+	if newLevel < 1 then
+		newLevel = 8; -- Wrap to TOOLTIP
+	elseif newLevel > 8 then
+		newLevel = 1; -- Wrap to BACKGROUND
+	end
+
+	local newStrata = MA_GetStrataName(newLevel);
+
+	-- Apply new strata using the hidden method if available
+	if taggedFrame.HiddenSetFrameStrata then
+		taggedFrame:HiddenSetFrameStrata(newStrata);
+	else
+		taggedFrame:SetFrameStrata(newStrata);
+	end
+
+	-- Save to frame options
+	local opt = MoveAnything_FindFrameOptions(taggedFrame:GetName());
+	if opt then
+		opt.strata = newStrata;
+	end
+
+	-- Update display
+	MA_UpdateStrataDisplay(moverFrame);
+end
+
 function MoveAnything_UpdatePosition( moveFrame )
 	local x, y, parent;
 	x = nil;
@@ -887,6 +973,20 @@ function MoveAnything_UpdatePosition( moveFrame )
 end
 
 function MoveAnything_StopMoving( moveFrameName )
+	-- Special handling for ChatFrameEditBox - no mover frame to find
+	if moveFrameName == "ChatFrameEditBox" then
+		local opt = MoveAnything_FindFrameOptions("ChatFrameEditBox");
+		if opt then
+			opt.movable = false;
+		end
+		-- Keep the frame hooked but reposition to bottom (default location)
+		MoveAnything_UpdateChatEditBox();
+		if( MAOptions:IsVisible() ) then
+			MoveAnythingOptions_Update();
+		end
+		return;
+	end
+
 	local frame = MoveAnything_FindMAFrame( moveFrameName );
 	if( frame ) then
 		MoveAnything_Detach( frame );
@@ -897,6 +997,22 @@ function MoveAnything_StopMoving( moveFrameName )
 end
 
 function MoveAnything_ToggleMove( moveFrameName )
+	-- Special handling for ChatFrameEditBox - check movable flag instead of mover frame
+	if moveFrameName == "ChatFrameEditBox" then
+		-- Hook the frame if not already hooked to ensure options exist
+		if not MoveAnything_IsFrameHooked(moveFrameName) then
+			MoveAnything_HookFrame(moveFrameName);
+		end
+
+		local opt = MoveAnything_FindFrameOptions("ChatFrameEditBox");
+		if opt and opt.movable then
+			MoveAnything_StopMoving( moveFrameName );
+		else
+			MoveAnything_Move( moveFrameName );
+		end
+		return;
+	end
+
 	if( MoveAnything_FindMAFrame( moveFrameName ) ) then
 		MoveAnything_StopMoving( moveFrameName );
 	else
@@ -1020,6 +1136,12 @@ function MoveAnything_Attach( moveFrame, tagFrame )
 	frameOptions.movable = true;
 	moveFrame.helpfulName = listOptions.helpfulName;
 
+	-- Special handling for ChatFrameEditBox - don't show mover, just update position
+	if tagFrame:GetName() == "ChatFrameEditBox" then
+		MoveAnything_UpdateChatEditBox();
+		return;
+	end
+
 	if( tagFrame.OnBeginMove ) then
 		if( not tagFrame:OnBeginMove() ) then
 			MoveAnything_Detach( moveFrame );
@@ -1043,6 +1165,11 @@ function MoveAnything_Attach( moveFrame, tagFrame )
 	tagFrame:HiddenSetPoint( "BOTTOMLEFT", moveFrame:GetName(), "BOTTOMLEFT", 0, 0 );
 
 	moveFrame.tagged = tagFrame;
+
+	-- Apply saved strata if it exists
+	if frameOptions and frameOptions.strata then
+		tagFrame:HiddenSetFrameStrata(frameOptions.strata);
+	end
 
 	moveFrame:Show();
 end
@@ -1113,6 +1240,12 @@ function MoveAnything_ResetFrameOptions( frameName )
 	MoveAnything_ClearFrameOptions( frameName );
 	if( MAOptions:IsVisible() ) then
 		MoveAnythingOptions_Update();
+	end
+
+	-- Update ChatFrameEditBox if it was reset
+	if frameName == "ChatFrameEditBox" then
+		-- Keep it hooked but reposition to default (bottom)
+		MoveAnything_UpdateChatEditBox();
 	end
 end
 
@@ -1295,7 +1428,15 @@ function MoveAnythingOptions_Update()
 				getglobal( "MAMove"..i.."Move" ):Hide();
 			end
 
-			if( MoveAnything_FindMAFrame( MoveAnything_Frames[index].name ) ) then
+			-- Special handling for ChatFrameEditBox - check movable flag instead of mover frame
+			local isMoving = false;
+			if MoveAnything_Frames[index].name == "ChatFrameEditBox" then
+				isMoving = (opt and opt.movable);
+			else
+				isMoving = (MoveAnything_FindMAFrame( MoveAnything_Frames[index].name ) ~= nil);
+			end
+
+			if( isMoving ) then
 				getglobal( "MAMove"..i.."Move" ):SetChecked( 1 );
 			else
 				getglobal( "MAMove"..i.."Move" ):SetChecked( nil );
@@ -1672,9 +1813,42 @@ function GameMenu_AddButton( button )
 	GameMenuFrame:SetHeight( GameMenuFrame:GetHeight() + button:GetHeight() + 2 );
 end
 
+-- CHAT EDITBOX HOOKS
+-- Simple top/bottom anchor toggle for ChatFrameEditBox
+function MoveAnything_UpdateChatEditBox()
+	if not ChatFrameEditBox then return; end
+
+	local opt = MoveAnything_FindFrameOptions("ChatFrameEditBox");
+
+	-- Always use Hidden methods to keep frame hooked and prevent width issues
+	if ChatFrameEditBox.HiddenClearAllPoints then
+		ChatFrameEditBox:HiddenClearAllPoints();
+
+		if opt and opt.movable then
+			-- CHECKED: Move to ABOVE the chat window (outside, top)
+			ChatFrameEditBox:HiddenSetPoint("BOTTOMLEFT", "ChatFrame1", "TOPLEFT", 0, 0);
+			ChatFrameEditBox:HiddenSetPoint("BOTTOMRIGHT", "ChatFrame1", "TOPRIGHT", 0, 0);
+		else
+			-- UNCHECKED: Default position - BELOW the chat window (outside, bottom)
+			ChatFrameEditBox:HiddenSetPoint("TOPLEFT", "ChatFrame1", "BOTTOMLEFT", 0, 0);
+			ChatFrameEditBox:HiddenSetPoint("TOPRIGHT", "ChatFrame1", "BOTTOMRIGHT", 0, 0);
+		end
+	end
+end
+
+-- Hook ChatFrameEditBox Show to maintain position
+MoveAnything_OriginalChatEditBox_OnShow = ChatFrameEditBox:GetScript("OnShow");
+ChatFrameEditBox:SetScript("OnShow", function()
+	if MoveAnything_OriginalChatEditBox_OnShow then
+		MoveAnything_OriginalChatEditBox_OnShow();
+	end
+
+	-- Always reposition if the frame is hooked (both top and bottom positions)
+	if MoveAnything_IsFrameHooked("ChatFrameEditBox") then
+		MoveAnything_UpdateChatEditBox();
+	end
+end);
+
 if ( GameMenuButtonAddOns ) then
 	GameMenu_AddButton(GameMenuButtonAddOns);
 end
-
---TODO:
---ChatFrameEditBox move

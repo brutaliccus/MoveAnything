@@ -1,4 +1,4 @@
-## Interface: 11200
+## Interface: 11000
 ## Title: MoveAnything!
 ## Notes: vJ-11000.2
 ## Author: Skrag - Mod by Jason

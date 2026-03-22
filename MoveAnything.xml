@@ -165,6 +165,7 @@ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 				MA_MoverOnShow();
 				getglobal( this:GetName().."Backdrop" ):Show();
 				getglobal( this:GetName().."BackdropMovingFrameName" ):SetText( "Moving\n"..this.helpfulName );
+				MA_UpdateStrataDisplay(this);
 				if( MoveAnything_NoScale[ this.tagged:GetName() ] ) then
 					getglobal( this:GetName().."Resize_TOP" ):Hide();
 					getglobal( this:GetName().."Resize_LEFT" ):Hide();
@@ -196,6 +197,15 @@ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 				</Backdrop>
 				<Layers>
 					<Layer level="ARTWORK">
+						<FontString name="$parentStrataText" inherits="GameFontNormalSmall">
+							<Anchors>
+								<Anchor point="CENTER" relativePoint="CENTER">
+									<Offset>
+										<AbsDimension x="0" y="20"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
 						<FontString name="$parentMovingFrameName" inherits="GameFontNormal">
 							<Anchors>
 								<Anchor point="CENTER" />
@@ -208,6 +218,40 @@ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 			<Button name="$parentResize_LEFT" inherits="ResizingButton"/>
 			<Button name="$parentResize_BOTTOM" inherits="ResizingButton"/>
 			<Button name="$parentResize_RIGHT" inherits="ResizingButton"/>
+			<Button name="$parentStrataUp" inherits="UIPanelButtonTemplate" text="^">
+				<Size>
+					<AbsDimension x="20" y="20"/>
+				</Size>
+				<Anchors>
+					<Anchor point="RIGHT" relativePoint="CENTER">
+						<Offset>
+							<AbsDimension x="70" y="20"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						MA_CycleStrata(1, this:GetParent());
+					</OnClick>
+				</Scripts>
+			</Button>
+			<Button name="$parentStrataDown" inherits="UIPanelButtonTemplate" text="v">
+				<Size>
+					<AbsDimension x="20" y="20"/>
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativePoint="CENTER">
+						<Offset>
+							<AbsDimension x="-70" y="20"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						MA_CycleStrata(-1, this:GetParent());
+					</OnClick>
+				</Scripts>
+			</Button>
 		</Frames>
 	</Frame>
 	<Frame name="MoveAnything1" inherits="MoveAnythingTemplate" parent="UIParent" id="1"/>
